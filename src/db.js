@@ -46,7 +46,9 @@ export async function updatePost (id, title, information, family, diet, funfact)
 export async function deletePost (id) {
   const sql = 'DELETE FROM blog_posts WHERE id = $1'
   const result = await conn.query(sql, [id])
-  return result.affectedRows > 0
-    ? 'Post with ID ${id} not found or already deleted!'
-    : 'Post with ID ${id} has been deleted!'
+  // Fix: pg/MemoryDb exponen rowCount, no affectedRows (siempre era undefined);
+  // ademas faltaban los backticks para interpolar el id en el mensaje.
+  return result.rowCount > 0
+    ? `Post with ID ${id} has been deleted!`
+    : `Post with ID ${id} not found or already deleted!`
 }

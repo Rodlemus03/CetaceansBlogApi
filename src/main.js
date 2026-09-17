@@ -2,6 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import bodyParser from 'body-parser'
 import jwt from 'jsonwebtoken'
+import helmet from "helmet"
 
 import {
   registerUser,
@@ -16,6 +17,7 @@ import {
 
 import authenticateToken from './middleware.js'
 
+
 // isLocal indica si corremos con BD efimera (--local); initDb la prepara.
 import { isLocal, initDb } from './conn.js'
 
@@ -25,6 +27,16 @@ app.use(express.json())
 app.use(bodyParser.json())
 
 app.use(cors())
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+    },
+  },
+}));
+
 
 // Puerto 3000 en modo local (para los tests del lab), 5000 en modo normal.
 const port = isLocal ? 3000 : 5000

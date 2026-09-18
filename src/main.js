@@ -17,6 +17,15 @@ import {
 
 import authenticateToken from './middleware.js'
 
+import {
+  validateBody,
+  validateParams,
+  registerSchema,
+  loginSchema,
+  createPostSchema,
+  updatePostSchema,
+  idParamSchema
+} from './validators.js'
 
 // isLocal indica si corremos con BD efimera (--local); initDb la prepara.
 import { isLocal, initDb } from './conn.js'
@@ -45,9 +54,8 @@ app.get('/', async (req, res) => {
   res.send('Hello world from API!')
 })
 
-app.post('/register', async (req, res) => {
+app.post('/register', validateBody(registerSchema), async (req, res) => {
   const { username, password_md5, email } = req.body
-  console.log(req.body)
 
   try {
     await registerUser(username, password_md5, email)
@@ -57,7 +65,7 @@ app.post('/register', async (req, res) => {
   }
 })
 
-app.post('/login', async (req, res) => {
+app.post('/login', validateBody(loginSchema), async (req, res) => {
   const { username, password_md5 } = req.body
 
   try {
@@ -82,7 +90,7 @@ app.post('/login', async (req, res) => {
   }
 })
 
-app.get('/user/:id', async (req, res) => {
+app.get('/user/:id', validateParams(idParamSchema), async (req, res) => {
   const id = req.params.id
   try {
     const user = await getUserById(id)
@@ -107,7 +115,7 @@ app.get('/posts', async (req, res) => {
   }
 })
 
-app.get('/post/:id', async (req, res) => {
+app.get('/post/:id', validateParams(idParamSchema), async (req, res) => {
   const id = req.params.id
   try {
     const post = await getPostByID(id)
@@ -117,7 +125,7 @@ app.get('/post/:id', async (req, res) => {
   }
 })
 
-app.post('/post', authenticateToken, async (req, res) => {
+app.post('/post', authenticateToken, validateBody(createPostSchema), async (req, res) => {
   const { title, information, author_id, author_name, family, diet, funfact } = req.body
 
   try {
@@ -128,7 +136,7 @@ app.post('/post', authenticateToken, async (req, res) => {
   }
 })
 
-app.put('/post/:id', authenticateToken, async (req, res) => {
+app.put('/post/:id', authenticateToken, validateParams(idParamSchema), validateBody(updatePostSchema), async (req, res) => {
   const id = req.params.id
   const { title, information, family, diet, funfact } = req.body
   try {
@@ -138,7 +146,7 @@ app.put('/post/:id', authenticateToken, async (req, res) => {
     res.status(500).json({ status: 'failed', error: error.message })
   }
 })
-app.delete('/post/:id', async (req, res) => {
+app.delete('/post/:id', validateParams(idParamSchema), async (req, res) => {
   const id = req.params.id
   try {
     const result = await deletePost(id)

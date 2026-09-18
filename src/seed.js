@@ -1,18 +1,11 @@
-// seed.js
-// Prepara la base de datos EFIMERA que se usa en modo local (--local).
-// Solo corre contra la instancia en memoria; nunca toca la BD real.
+import bcrypt from 'bcryptjs'
 
-// Usuarios por defecto. Se guardan con MD5 igual que la API real, de modo
-// que puedas hacer login local y probar los endpoints protegidos con JWT.
 const users = [
-  // username, password_plano, email, role
   ['sapo', '1234#', 'sapo@gmail.com', 'Administrador'],
   ['test', 'test', 'test@gmail.com', 'Usuario']
 ]
 
-// 10 posts de cetaceos (author_id 1 = sapo, 2 = test).
 const posts = [
-  // title, information, author_id, author_name, family, diet, funfact
   ['Ballena azul', 'El animal mas grande que ha existido, llega a 30 metros.', 1, 'sapo', 'Balaenopteridae', 'Filtrador', 'Su corazon pesa cerca de 180 kg.'],
   ['Orca', 'Es el delfin mas grande y un depredador tope del oceano.', 1, 'sapo', 'Delphinidae', 'Carnivoro', 'Cazan en grupo con estrategias que se ensenan entre generaciones.'],
   ['Delfin nariz de botella', 'Muy sociable e inteligente, comun en aguas templadas.', 2, 'test', 'Delphinidae', 'Carnivoro', 'Se reconoce a si mismo en un espejo.'],
@@ -25,15 +18,15 @@ const posts = [
   ['Vaquita marina', 'El cetaceo mas amenazado, endemico del Golfo de California.', 1, 'sapo', 'Phocoenidae', 'Carnivoro', 'Quedan muy pocos ejemplares en estado salvaje.']
 ]
 
-// Inserta esquema (no-op en la BD en memoria) y datos por defecto.
-// db: instancia con .exec y .query, compatible con pg.
 export async function seedLocalDb (db) {
-  await db.exec() // en la BD en memoria no hay DDL que ejecutar
+  await db.exec()
 
   for (const u of users) {
+    const [username, password, email, role] = u
+    const passwordHash = await bcrypt.hash(password, Number(process.env.BCRYPT_SALT_ROUNDS) || 12)
     await db.query(
-      'INSERT INTO users (username, password_md5, email, role) VALUES ($1, MD5($2), $3, $4)',
-      u
+      'INSERT INTO users (username, password_hash, email, role) VALUES ($1, $2, $3, $4)',
+      [username, passwordHash, email, role]
     )
   }
 

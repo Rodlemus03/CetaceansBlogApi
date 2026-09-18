@@ -2,6 +2,8 @@ import express from 'express'
 import cors from 'cors'
 import bodyParser from 'body-parser'
 import jwt from 'jsonwebtoken'
+import helmet from "helmet"
+import rateLimit from 'express-rate-limit'
 
 import {
   registerUser,
@@ -16,6 +18,16 @@ import {
 
 import authenticateToken from './middleware.js'
 
+import {
+  validateBody,
+  validateParams,
+  registerSchema,
+  loginSchema,
+  createPostSchema,
+  updatePostSchema,
+  idParamSchema
+} from './validators.js'
+
 // isLocal indica si corremos con BD efimera (--local); initDb la prepara.
 import { isLocal, initDb } from './conn.js'
 
@@ -26,16 +38,38 @@ app.use(bodyParser.json())
 
 app.use(cors())
 
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+    },
+  },
+}));
+
+
 // Puerto 3000 en modo local (para los tests del lab), 5000 en modo normal.
 const port = isLocal ? 3000 : 5000
+
+// Rate limiting para /login: mitiga fuerza bruta de credenciales (hallazgo OWASP).
+// Ventana de 15 min, max 5 intentos por IP; se aplica SOLO a esta ruta.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true, // expone info del limite en headers RateLimit-*
+  legacyHeaders: false, // desactiva los headers X-RateLimit-* (obsoletos)
+  message: {
+    status: 'failed',
+    message: 'Demasiados intentos de inicio de sesión. Intenta de nuevo en 15 minutos.'
+  }
+})
 
 app.get('/', async (req, res) => {
   res.send('Hello world from API!')
 })
 
-app.post('/register', async (req, res) => {
+app.post('/register', validateBody(registerSchema), async (req, res) => {
   const { username, password_md5, email } = req.body
-  console.log(req.body)
 
   try {
     await registerUser(username, password_md5, email)
@@ -45,13 +79,15 @@ app.post('/register', async (req, res) => {
   }
 })
 
-app.post('/login', async (req, res) => {
+app.post('/login', validateBody(loginSchema), loginLimiter, async (req, res) => {
   const { username, password_md5 } = req.body
 
   try {
     const user = await loginUser(username, password_md5)
     if (user) {
-      const token = jwt.sign({ username: user.username, role: user.role }, process.env.JWT_SECRET, {
+      // Se incluye el id del usuario en el token para poder validar dueño de recurso
+      // (p.ej. al borrar/editar un post) sin volver a consultar la BD por username.
+      const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, process.env.JWT_SECRET, {
         expiresIn: '24h'
       })
       res.status(200).json({
@@ -70,7 +106,7 @@ app.post('/login', async (req, res) => {
   }
 })
 
-app.get('/user/:id', async (req, res) => {
+app.get('/user/:id', validateParams(idParamSchema), async (req, res) => {
   const id = req.params.id
   try {
     const user = await getUserById(id)
@@ -95,7 +131,7 @@ app.get('/posts', async (req, res) => {
   }
 })
 
-app.get('/post/:id', async (req, res) => {
+app.get('/post/:id', validateParams(idParamSchema), async (req, res) => {
   const id = req.params.id
   try {
     const post = await getPostByID(id)
@@ -105,7 +141,7 @@ app.get('/post/:id', async (req, res) => {
   }
 })
 
-app.post('/post', authenticateToken, async (req, res) => {
+app.post('/post', authenticateToken, validateBody(createPostSchema), async (req, res) => {
   const { title, information, author_id, author_name, family, diet, funfact } = req.body
 
   try {
@@ -116,19 +152,41 @@ app.post('/post', authenticateToken, async (req, res) => {
   }
 })
 
-app.put('/post/:id', authenticateToken, async (req, res) => {
+// Solo el autor del post o un Administrador puede modificarlo/borrarlo.
+function isOwnerOrAdmin (user, post) {
+  return user.role === 'Administrador' || Number(user.id) === Number(post.author_id)
+}
+
+app.put('/post/:id', authenticateToken, validateParams(idParamSchema), validateBody(updatePostSchema), async (req, res) => {
   const id = req.params.id
   const { title, information, family, diet, funfact } = req.body
   try {
+    const post = await getPostByID(id)
+    if (!post) {
+      return res.status(404).json({ status: 'failed', message: `Post with ID ${id} not found.` })
+    }
+    if (!isOwnerOrAdmin(req.user, post)) {
+      return res.status(403).json({ status: 'failed', message: 'You are not allowed to modify this post.' })
+    }
     await updatePost(id, title, information, family, diet, funfact)
     res.status(200).json({ status: 'success', message: 'Post updated successfully.' })
   } catch (error) {
     res.status(500).json({ status: 'failed', error: error.message })
   }
 })
-app.delete('/post/:id', async (req, res) => {
+
+// Requiere JWT valido (authenticateToken) y autorizacion: solo el autor del
+// post o un Administrador pueden borrarlo (hallazgo OWASP: falta de auth).
+app.delete('/post/:id', authenticateToken, validateParams(idParamSchema) ,async (req, res) => {
   const id = req.params.id
   try {
+    const post = await getPostByID(id)
+    if (!post) {
+      return res.status(404).json({ status: 'failed', message: `Post with ID ${id} not found.` })
+    }
+    if (!isOwnerOrAdmin(req.user, post)) {
+      return res.status(403).json({ status: 'failed', message: 'You are not allowed to delete this post.' })
+    }
     const result = await deletePost(id)
     res.status(200).json({ status: 'success', message: result })
   } catch (error) {

@@ -1,16 +1,27 @@
 import conn from './conn.js'
+import bcrypt from 'bcryptjs'
 
-export async function registerUser (username, password_md5, email) {
-  const sql = 'INSERT INTO users (username, password_md5, email) VALUES ($1,MD5($2),$3)'
-  await conn.query(sql, [username, password_md5, email])
+const saltRounds = Number(process.env.BCRYPT_SALT_ROUNDS) || 12
+
+export async function registerUser (username, password, email) {
+  const passwordHash = await bcrypt.hash(password, saltRounds)
+  const sql = 'INSERT INTO users (username, password_hash, email) VALUES ($1,$2,$3)'
+  await conn.query(sql, [username, passwordHash, email])
   return true
 }
 
-export async function loginUser (username, password_md5) {
+export async function loginUser (username, password) {
   const sql =
-    'SELECT id, username, email, role FROM users WHERE username = $1 AND password_md5 = MD5($2)'
-  const result = await conn.query(sql, [username, password_md5])
-  return result.rows[0]
+    'SELECT id, username, email, role, password_hash FROM users WHERE username = $1'
+  const result = await conn.query(sql, [username])
+  const user = result.rows[0]
+  if (!user) return null
+
+  const isValid = await bcrypt.compare(password, user.password_hash)
+  if (!isValid) return null
+
+  delete user.password_hash
+  return user
 }
 
 export async function getUserById (id) {

@@ -4,6 +4,7 @@ import bodyParser from 'body-parser'
 import jwt from 'jsonwebtoken'
 import helmet from "helmet"
 import rateLimit from 'express-rate-limit'
+import cookieParser from 'cookie-parser'
 
 import {
   registerUser,
@@ -35,8 +36,18 @@ const app = express()
 app.use(express.json())
 
 app.use(bodyParser.json())
+app.use(cookieParser())
 
-app.use(cors())
+const allowedOrigins = [
+  'http://127.0.0.1:5173',
+  'https://my-blog-one-beige-60.vercel.app'
+]
+
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE']
+}))
 
 app.use(helmet({
   contentSecurityPolicy: {
@@ -68,33 +79,38 @@ app.get('/', async (req, res) => {
   res.send('Hello world from API!')
 })
 
-app.post('/register', validateBody(registerSchema), async (req, res) => {
-  const { username, password_md5, email } = req.body
+app.post('/register',  validateBody(registerSchema) ,async (req, res) => {
+  const { username, password, email } = req.body
 
   try {
-    await registerUser(username, password_md5, email)
+    await registerUser(username, password, email)
     res.status(200).json({ status: 'success', message: 'User registered succesully.' })
   } catch (error) {
     res.status(500).json({ status: 'failed', error: error.message })
   }
 })
 
-app.post('/login', validateBody(loginSchema), loginLimiter, async (req, res) => {
-  const { username, password_md5 } = req.body
+app.post('/login',validateBody(loginSchema), async (req, res) => {
+  const { username, password } = req.body
 
   try {
-    const user = await loginUser(username, password_md5)
+    const user = await loginUser(username, password)
     if (user) {
       // Se incluye el id del usuario en el token para poder validar dueño de recurso
       // (p.ej. al borrar/editar un post) sin volver a consultar la BD por username.
       const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, process.env.JWT_SECRET, {
         expiresIn: '24h'
       })
+      res.cookie('token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        maxAge: 86400000
+      })
       res.status(200).json({
         status: 'success',
         message: 'User logged in successfully',
         username: user.username,
-        token,
         role: user.role,
         id: user.id
       })
@@ -106,7 +122,27 @@ app.post('/login', validateBody(loginSchema), loginLimiter, async (req, res) => 
   }
 })
 
-app.get('/user/:id', validateParams(idParamSchema), async (req, res) => {
+app.post('/logout', (req, res) => {
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict'
+  })
+  res.status(200).json({ status: 'success', message: 'User logged out successfully' })
+})
+
+app.get('/me', authenticateToken, async (req, res) => {
+  res.status(200).json({
+    status: 'success',
+    user: {
+      id: req.user.id,
+      username: req.user.username,
+      role: req.user.role
+    }
+  })
+})
+
+app.get('/user/:id',  validateParams(idParamSchema), async (req, res) => {
   const id = req.params.id
   try {
     const user = await getUserById(id)

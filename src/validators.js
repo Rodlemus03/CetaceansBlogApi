@@ -1,17 +1,16 @@
 import { z } from 'zod'
 
-// password_md5 llega en texto plano; el hash MD5() se calcula en la consulta SQL (db.js).
 const password = z.string().min(1)
 
 export const registerSchema = z.object({
   username: z.string().trim().min(3).max(50),
-  password_md5: password,
+  password,
   email: z.string().trim().email()
 })
 
 export const loginSchema = z.object({
   username: z.string().trim().min(1),
-  password_md5: password
+  password
 })
 
 export const createPostSchema = z.object({

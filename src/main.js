@@ -40,6 +40,7 @@ app.use(cookieParser())
 
 const allowedOrigins = [
   'http://127.0.0.1:5173',
+  'http://localhost:5173',
   'https://my-blog-one-beige-60.vercel.app'
 ]
 
@@ -90,7 +91,7 @@ app.post('/register',  validateBody(registerSchema) ,async (req, res) => {
   }
 })
 
-app.post('/login',validateBody(loginSchema), async (req, res) => {
+app.post('/login', loginLimiter, validateBody(loginSchema), async (req, res) => {
   const { username, password } = req.body
 
   try {
